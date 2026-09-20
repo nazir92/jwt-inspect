@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -43,9 +44,19 @@ func main() {
 	}
 	header := parts[0]
 	payload := parts[1]
-	signature := parts[2]
-	fmt.Println(header)
-	fmt.Println(payload)
-	fmt.Println(signature)
 
+	decodedHeader, err := base64.RawURLEncoding.DecodeString(header)
+	if err != nil {
+		fmt.Println("Error happened when parsing header")
+		return
+	}
+
+	decodedPayload, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		fmt.Println("Error happend when parsing payload")
+		return
+	}
+
+	fmt.Println(string(decodedHeader))
+	fmt.Println(string(decodedPayload))
 }
