@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -11,7 +13,7 @@ func main() {
 	const BEARER_PREFIX = "Bearer "
 
 	if len(os.Args) < 2 {
-		fmt.Println("you need to enter token")
+		fmt.Fprintln(os.Stderr, "you need to enter token")
 		return
 	}
 	argsCount := len(os.Args)
@@ -28,35 +30,58 @@ func main() {
 		if os.Args[1] == strings.TrimSpace(BEARER_PREFIX) {
 			token = os.Args[2]
 		} else {
-			fmt.Println("Argument is not Bearer prefix")
+			fmt.Fprintln(os.Stderr, "Argument is not Bearer prefix")
 			return
 		}
 
 	default:
-		fmt.Println("User input more arguments!")
+		fmt.Fprintln(os.Stderr, "User input more arguments!")
 		return
 	}
 
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		fmt.Println("Incorrect JWT token")
+		fmt.Fprintln(os.Stderr, "Incorrect JWT token")
 		return
 	}
 	header := parts[0]
 	payload := parts[1]
 
-	decodedHeader, err := base64.RawURLEncoding.DecodeString(header)
+	decodedHeader, err := decodeValue(header)
 	if err != nil {
-		fmt.Println("Error happened when parsing header")
+		fmt.Fprintln(os.Stderr, "Error handling JWT header:", err)
 		return
 	}
 
-	decodedPayload, err := base64.RawURLEncoding.DecodeString(payload)
+	decodedPayload, err := decodeValue(payload)
 	if err != nil {
-		fmt.Println("Error happend when parsing payload")
+		fmt.Fprintln(os.Stderr, "Error handling JWT payload:", err)
 		return
 	}
 
-	fmt.Println(string(decodedHeader))
-	fmt.Println(string(decodedPayload))
+	fmt.Println()
+
+	headerString, err := formatJSON(decodedHeader)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error handling JWT header:", err)
+		return
+	}
+	fmt.Println(headerString)
+
+	payloadString, err := formatJSON(decodedPayload)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error handling JWT payload:", err)
+		return
+	}
+	fmt.Println(payloadString)
+}
+
+func decodeValue(value string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(value)
+}
+
+func formatJSON(jsonData []byte) (string, error) {
+	var buf bytes.Buffer
+	err := json.Indent(&buf, jsonData, "", " ")
+	return buf.String(), err
 }
