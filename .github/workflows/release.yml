@@ -1,0 +1,221 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      retry_tag:
+        description: Existing incomplete release tag to retry (e.g. v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  target:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Select trusted commit
+        id: target
+        env:
+          EVENT: ${{ github.event_name }}
+          RETRY_TAG: ${{ inputs.retry_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            [[ "$RETRY_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+              echo "Retry requires a stable vMAJOR.MINOR.PATCH tag." >&2; exit 1;
+            }
+            git fetch origin main --tags
+            sha=$(git rev-parse --verify "refs/tags/$RETRY_TAG^{commit}")
+            git merge-base --is-ancestor "$sha" origin/main || {
+              echo "Retry tag is not on main." >&2; exit 1;
+            }
+          else
+            sha=$(git rev-parse HEAD)
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: target
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ needs.target.outputs.sha }}
+
+  release:
+    needs: [target, checks]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check release state
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RETRY_TAG: ${{ inputs.retry_tag }}
+          EVENT: ${{ github.event_name }}
+          TESTED_SHA: ${{ needs.target.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          if [[ "$EVENT" == push && "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+            echo "Stale push; a newer main run will handle it."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+          # Keep the action's repository-wide version selection aligned with this guard.
+          if git tag -l 'v*' | grep -Ev '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "Only stable vMAJOR.MINOR.PATCH tags are supported in the v tag namespace." >&2
+            exit 1
+          fi
+          tags=$(git tag --sort=-version:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || true)
+          latest=$(sed -n '1p' <<< "$tags")
+          if [[ -n "$latest" ]]; then
+            git merge-base --is-ancestor "refs/tags/$latest" origin/main || {
+              echo "Latest version tag $latest is not on main." >&2; exit 1;
+            }
+          fi
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            [[ "$RETRY_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && "$RETRY_TAG" == "$latest" ]] || {
+              echo "Retry must name the latest existing stable version tag on main." >&2; exit 1;
+            }
+            [[ "$(git rev-parse "refs/tags/$RETRY_TAG^{commit}")" == "$TESTED_SHA" ]] || {
+              echo "Retry tag moved after testing; refusing to publish." >&2; exit 1;
+            }
+          fi
+          if [[ -n "$latest" ]]; then
+            release=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -c --arg tag "$latest" 'map(.[]) | map(select(.tag_name == $tag)) | .[0] // null')
+            if jq -e --arg v "${latest#v}" '
+              if . == null or .draft then false else
+                [.assets[] | select(.state == "uploaded") | .name] as $names |
+                (["checksums.txt"] + [("linux", "darwin", "windows") as $os |
+                  ("amd64", "arm64") as $arch |
+                  "jwt-inspect_\($v)_\($os)_\($arch).\(if $os == "windows" then "zip" else "tar.gz" end)"]) |
+                all(.[]; . as $name | $names | index($name) != null)
+              end' <<< "$release" >/dev/null; then
+              complete=true
+            else
+              complete=false
+            fi
+            if [[ "$EVENT" == push && "$complete" == false ]]; then
+              echo "Release $latest is incomplete. Retry it with workflow_dispatch before another release." >&2
+              exit 1
+            fi
+            if [[ "$EVENT" == workflow_dispatch && "$complete" == true ]]; then
+              echo "Release $latest is already complete; refusing to overwrite it." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            previous=$(sed -n '2p' <<< "$tags")
+            if [[ -n "$previous" ]]; then
+              git merge-base --is-ancestor "refs/tags/$previous" "refs/tags/$latest" || {
+                echo "Previous version tag is not an ancestor of $latest." >&2; exit 1;
+              }
+            fi
+          else
+            previous="$latest"
+          fi
+          # With no predecessor, an unrelated earlier tag would truncate GoReleaser's notes.
+          base=HEAD
+          if [[ "$EVENT" == workflow_dispatch ]]; then base="refs/tags/$latest"; fi
+          if [[ -z "$previous" ]] && git tag --merged "$base" | grep -Fxv "$latest"; then
+            echo "Unrelated tags prevent reliable first-release notes." >&2
+            exit 1
+          fi
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tagged source for retry
+        if: steps.state.outputs.run == 'true' && github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          path: release-source
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        if: steps.state.outputs.run == 'true'
+        with:
+          go-version-file: ${{ github.event_name == 'workflow_dispatch' && 'release-source/go.mod' || 'go.mod' }}
+          cache: false
+      - name: Select and create version tag
+        id: tag
+        if: steps.state.outputs.run == 'true' && github.event_name == 'push'
+        uses: mathieudutour/github-tag-action@v7
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: false
+          release_branches: ^main$
+          create_local_tag: true
+          prefix_match_tag: true
+          ignore_keywords: ''
+      - name: Select release version
+        id: version
+        if: steps.state.outputs.run == 'true' && (github.event_name == 'workflow_dispatch' || steps.tag.outputs.new_tag != '')
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_tag || steps.tag.outputs.new_tag }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Generate conventional release notes
+        id: notes
+        if: steps.version.outputs.version != ''
+        uses: mathieudutour/github-tag-action@v7
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          commit_sha: ${{ needs.target.outputs.sha }}
+          custom_tag: ${{ steps.version.outputs.version }}
+          previous_tag: ${{ steps.state.outputs.previous }}
+          tag_search_pattern: __no_tags__
+          release_branches: ^main$
+          dry_run: true
+          ignore_keywords: ''
+      - name: Save release notes
+        if: steps.version.outputs.version != ''
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.changelog }}
+        run: |
+          test -n "$RELEASE_NOTES"
+          printf '%s\n' "$RELEASE_NOTES" > "$RUNNER_TEMP/release-notes.md"
+      - name: Publish new release
+        if: steps.tag.outputs.new_tag != ''
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.19.0
+          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.tag.outputs.new_tag }}
+          GORELEASER_PREVIOUS_TAG: ${{ steps.state.outputs.previous }}
+      - name: Retry incomplete release
+        if: steps.state.outputs.run == 'true' && github.event_name == 'workflow_dispatch'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.19.0
+          workdir: release-source
+          args: release --clean --config ../.goreleaser.yaml --release-notes ${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ inputs.retry_tag }}
+          GORELEASER_PREVIOUS_TAG: ${{ steps.state.outputs.previous }}
