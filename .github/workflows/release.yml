@@ -108,12 +108,21 @@ jobs:
           if [[ -n "$latest" ]]; then
             release=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
               jq -c --arg tag "$latest" 'map(.[]) | map(select(.tag_name == $tag)) | .[0] // null')
-            if jq -e --arg v "${latest#v}" '
+            # Legacy releases need no packages unless a retry has started adding them.
+            require_deb=false
+            if git show "refs/tags/$latest:.goreleaser.yaml" | grep '^nfpms:' >/dev/null ||
+              jq -e --arg v "${latest#v}" '
+                [.assets[]? | select(.name == "jwt-inspect_\($v)_linux_amd64.deb" or .name == "jwt-inspect_\($v)_linux_arm64.deb")] | length > 0
+              ' <<< "$release" >/dev/null; then
+              require_deb=true
+            fi
+            if jq -e --arg v "${latest#v}" --argjson require_deb "$require_deb" '
               if . == null or .draft then false else
                 [.assets[] | select(.state == "uploaded") | .name] as $names |
                 (["checksums.txt"] + [("linux", "darwin", "windows") as $os |
                   ("amd64", "arm64") as $arch |
-                  "jwt-inspect_\($v)_\($os)_\($arch).\(if $os == "windows" then "zip" else "tar.gz" end)"]) |
+                  "jwt-inspect_\($v)_\($os)_\($arch).\(if $os == "windows" then "zip" else "tar.gz" end)"] +
+                  (if $require_deb then ["jwt-inspect_\($v)_linux_amd64.deb", "jwt-inspect_\($v)_linux_arm64.deb"] else [] end)) |
                 all(.[]; . as $name | $names | index($name) != null)
               end' <<< "$release" >/dev/null; then
               complete=true
@@ -149,6 +158,27 @@ jobs:
           fi
           echo "previous=$previous" >> "$GITHUB_OUTPUT"
 
+      - name: Check whether a release is needed
+        id: preview
+        if: steps.state.outputs.run == 'true' && github.event_name == 'push'
+        uses: mathieudutour/github-tag-action@v7
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: false
+          release_branches: ^main$
+          prefix_match_tag: true
+          ignore_keywords: ''
+          dry_run: true
+      - name: Require packaging credentials
+        if: steps.state.outputs.run == 'true' && (github.event_name == 'workflow_dispatch' || steps.preview.outputs.new_tag != '')
+        env:
+          PACKAGING_GITHUB_TOKEN: ${{ secrets.PACKAGING_GITHUB_TOKEN }}
+        run: |
+          if [[ -z "$PACKAGING_GITHUB_TOKEN" ]]; then
+            echo "PACKAGING_GITHUB_TOKEN is required to publish the Homebrew tap and Scoop bucket." >&2
+            exit 1
+          fi
+
       - name: Checkout tagged source for retry
         if: steps.state.outputs.run == 'true' && github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v6
@@ -163,7 +193,7 @@ jobs:
           cache: false
       - name: Select and create version tag
         id: tag
-        if: steps.state.outputs.run == 'true' && github.event_name == 'push'
+        if: steps.state.outputs.run == 'true' && github.event_name == 'push' && steps.preview.outputs.new_tag != ''
         uses: mathieudutour/github-tag-action@v7
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -198,6 +228,32 @@ jobs:
         run: |
           test -n "$RELEASE_NOTES"
           printf '%s\n' "$RELEASE_NOTES" > "$RUNNER_TEMP/release-notes.md"
+      - name: Prepare release draft
+        if: steps.version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_tag || steps.tag.outputs.new_tag }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -c 'map(.[])')
+          if jq -e --arg tag "$TAG" 'any(.[]; .draft and .name == $tag and .tag_name != $tag)' <<< "$releases" >/dev/null; then
+            echo "Another draft has the title $TAG; rename it before continuing." >&2
+            exit 1
+          fi
+          count=$(jq --arg tag "$TAG" '[.[] | select(.tag_name == $tag)] | length' <<< "$releases")
+          if (( count > 1 )); then
+            echo "Multiple releases refer to $TAG; resolve the ambiguity before retrying." >&2
+            exit 1
+          fi
+          if (( count == 1 )); then
+            if [[ "$EVENT" != workflow_dispatch ]]; then
+              echo "A release for $TAG already exists; refusing to overwrite it." >&2
+              exit 1
+            fi
+            # GoReleaser finds drafts by title, not tag.
+            gh release edit "$TAG" --draft --title "$TAG"
+          fi
       - name: Publish new release
         if: steps.tag.outputs.new_tag != ''
         uses: goreleaser/goreleaser-action@v7
@@ -206,6 +262,7 @@ jobs:
           args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGING_GITHUB_TOKEN: ${{ secrets.PACKAGING_GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ steps.tag.outputs.new_tag }}
           GORELEASER_PREVIOUS_TAG: ${{ steps.state.outputs.previous }}
       - name: Retry incomplete release
@@ -217,5 +274,12 @@ jobs:
           args: release --clean --config ../.goreleaser.yaml --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGING_GITHUB_TOKEN: ${{ secrets.PACKAGING_GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ inputs.retry_tag }}
           GORELEASER_PREVIOUS_TAG: ${{ steps.state.outputs.previous }}
+      - name: Publish completed draft
+        if: steps.version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_tag || steps.tag.outputs.new_tag }}
+        run: gh release edit "$TAG" --draft=false

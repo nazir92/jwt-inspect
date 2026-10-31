@@ -9,6 +9,36 @@ JSON Web Token's header and payload as formatted JSON.
 
 ## Installation
 
+After a release is published, install it with the package manager for your
+platform:
+
+**macOS (Homebrew):**
+
+```bash
+brew tap nazir92/tap
+brew install --cask nazir92/tap/jwt-inspect
+```
+
+**Ubuntu:** Download the `.deb` for your architecture from
+[GitHub Releases](https://github.com/nazir92/jwt-inspect/releases), then replace
+`PACKAGE.deb` with the downloaded filename:
+
+```bash
+sudo apt install ./PACKAGE.deb
+```
+
+**Windows (Scoop):**
+
+```powershell
+scoop bucket add jwt-inspect https://github.com/nazir92/scoop-bucket
+scoop install jwt-inspect/jwt-inspect
+```
+
+Homebrew and Scoop must be installed and configured first. These package
+managers put the command on your `PATH`, as does the Ubuntu package.
+
+### Manual installation
+
 Download the archive for your operating system and CPU architecture from
 [GitHub Releases](https://github.com/nazir92/jwt-inspect/releases), extract it,
 and place `jwt-inspect` (or `jwt-inspect.exe` on Windows) somewhere on your
@@ -82,6 +112,17 @@ squash commit's Conventional Commit type to determine whether to publish a new
 version. Features, fixes, performance improvements, and breaking changes
 trigger releases; documentation or CI changes alone do not. The first feature
 release is `v0.1.0`.
+
+Before the first release, the maintainer must:
+
+1. Create and initialize public repositories named `nazir92/homebrew-tap` and
+   `nazir92/scoop-bucket`.
+2. Create a fine-grained GitHub token with access to those two repositories
+   and **Contents: read and write** permission.
+3. Add it as the `PACKAGING_GITHUB_TOKEN` Actions secret in this repository.
+
+The workflow's normal `GITHUB_TOKEN` publishes the release here; it cannot
+write to the separate tap and bucket repositories.
 
 If publication fails after a version has been tagged, later releases stop until
 the incomplete release is retried. A maintainer can run the Release workflow
