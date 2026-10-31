@@ -1,0 +1,51 @@
+version: 2
+project_name: jwt-inspect
+
+builds:
+  - binary: jwt-inspect
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - src: scripts/install.sh
+        dst: .
+        strip_parent: true
+        info:
+          mode: 0755
+      - src: scripts/install.ps1
+        dst: .
+        strip_parent: true
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - package_name: jwt-inspect
+    homepage: https://github.com/nazir92/jwt-inspect
+    description: Inspect JWT headers and claims without verification.
+    maintainer: nazir92
+    license: Apache-2.0
+    formats: [deb]
+    bindir: /usr/bin
+
+changelog:
+  use: git
+
+release:
+  draft: true
+  use_existing_draft: true
+  replace_existing_artifacts: true
+  mode: replace
