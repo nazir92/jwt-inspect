@@ -9,60 +9,52 @@ JSON Web Token's header and payload as formatted JSON.
 
 ## Installation
 
-After a release is published, install it with the package manager for your
-platform:
-
-**macOS (Homebrew):**
-
-```bash
-brew tap nazir92/tap
-brew install --cask nazir92/tap/jwt-inspect
-```
-
 **Ubuntu:** Download the `.deb` for your architecture from
-[GitHub Releases](https://github.com/nazir92/jwt-inspect/releases), then replace
-`PACKAGE.deb` with the downloaded filename:
+[GitHub Releases](https://github.com/nazir92/jwt-inspect/releases), verify its
+checksum as described below, then replace `PACKAGE.deb` with the downloaded
+filename:
 
 ```bash
 sudo apt install ./PACKAGE.deb
 ```
 
-**Windows (Scoop):**
+The Ubuntu package installs the command in `/usr/bin`, which is normally on
+your `PATH`.
 
-```powershell
-scoop bucket add jwt-inspect https://github.com/nazir92/scoop-bucket
-scoop install jwt-inspect/jwt-inspect
-```
-
-Homebrew and Scoop must be installed and configured first. These package
-managers put the command on your `PATH`, as does the Ubuntu package.
-
-### Manual installation
+### macOS, Linux, and Windows archives
 
 Download the archive for your operating system and CPU architecture from
-[GitHub Releases](https://github.com/nazir92/jwt-inspect/releases), extract it,
-and place `jwt-inspect` (or `jwt-inspect.exe` on Windows) somewhere on your
-`PATH`. Releases also include a checksum file for verifying downloads.
+[GitHub Releases](https://github.com/nazir92/jwt-inspect/releases). Verify its
+checksum before extracting it or installing the binary.
 
-For example, after extracting the archive on macOS or Linux, install the binary
-in your user directory:
+On Linux or macOS, calculate the archive's SHA-256 checksum with
+`sha256sum ARCHIVE` or `shasum -a 256 ARCHIVE` and compare it with the matching
+entry in the release's `checksums.txt`. In PowerShell, use
+`Get-FileHash .\ARCHIVE -Algorithm SHA256` and compare its hash. A checksum
+from the same release detects corruption but does not independently verify the
+publisher.
+
+After extracting the archive on macOS or Linux, run:
 
 ```bash
-mkdir -p "$HOME/.local/bin"
-install -m 755 jwt-inspect "$HOME/.local/bin/jwt-inspect"
-export PATH="$HOME/.local/bin:$PATH"
-jwt-inspect -help
+sh ./install.sh
 ```
 
-The `export` applies to the current shell. To make it permanent, add that line
-to your shell's startup file, such as `~/.zshrc` or `~/.bashrc`. On Windows,
-place `jwt-inspect.exe` in a directory on your user `Path`, or add its directory
-to `Path` in Windows environment variable settings, then open a new terminal.
+On Windows, run the installer in PowerShell from the extracted directory:
 
-For example, on Linux or macOS, calculate the archive's SHA-256 checksum with
-`sha256sum ARCHIVE` or `shasum -a 256 ARCHIVE` and compare it with the matching
-entry in the checksum file. In PowerShell, use
-`Get-FileHash .\ARCHIVE -Algorithm SHA256` and compare its hash.
+```powershell
+.\install.ps1
+```
+
+The installers copy the binary to your user directory and configure your user
+`PATH`: on Unix they update shell startup files; on Windows they update the user
+environment. Open a new terminal and run `jwt-inspect --help`. The Unix
+installer supports zsh, bash, sh, and dash. On Windows, the PowerShell execution
+policy must permit running the local script.
+
+To upgrade an existing installation, run `sh ./install.sh --force` on macOS or
+Linux, or `.\install.ps1 -Force` on Windows. These options replace the existing
+binary in the installer-managed location.
 
 Alternatively, build from source with Go 1.26.2 or newer:
 
@@ -113,16 +105,8 @@ version. Features, fixes, performance improvements, and breaking changes
 trigger releases; documentation or CI changes alone do not. The first feature
 release is `v0.1.0`.
 
-Before the first release, the maintainer must:
-
-1. Create and initialize public repositories named `nazir92/homebrew-tap` and
-   `nazir92/scoop-bucket`.
-2. Create a fine-grained GitHub token with access to those two repositories
-   and **Contents: read and write** permission.
-3. Add it as the `PACKAGING_GITHUB_TOKEN` Actions secret in this repository.
-
-The workflow's normal `GITHUB_TOKEN` publishes the release here; it cannot
-write to the separate tap and bucket repositories.
+The workflow publishes release assets to this repository using its normal
+`GITHUB_TOKEN`. No additional package repositories or tokens are required.
 
 If publication fails after a version has been tagged, later releases stop until
 the incomplete release is retried. A maintainer can run the Release workflow

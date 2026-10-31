@@ -17,6 +17,17 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    files:
+      - src: scripts/install.sh
+        dst: .
+        strip_parent: true
+        info:
+          mode: 0755
+      - src: scripts/install.ps1
+        dst: .
+        strip_parent: true
+      - README.md
+      - LICENSE
 
 checksum:
   name_template: checksums.txt
@@ -29,24 +40,6 @@ nfpms:
     license: Apache-2.0
     formats: [deb]
     bindir: /usr/bin
-
-homebrew_casks:
-  - repository:
-      owner: nazir92
-      name: homebrew-tap
-      token: "{{ .Env.PACKAGING_GITHUB_TOKEN }}"
-    homepage: https://github.com/nazir92/jwt-inspect
-    description: Inspect JWT headers and claims without verification
-    binaries: [jwt-inspect]
-
-scoops:
-  - repository:
-      owner: nazir92
-      name: scoop-bucket
-      token: "{{ .Env.PACKAGING_GITHUB_TOKEN }}"
-    homepage: https://github.com/nazir92/jwt-inspect
-    description: Inspect JWT headers and claims without verification
-    license: Apache-2.0
 
 changelog:
   use: git
