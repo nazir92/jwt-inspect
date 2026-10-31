@@ -14,6 +14,21 @@ Download the archive for your operating system and CPU architecture from
 and place `jwt-inspect` (or `jwt-inspect.exe` on Windows) somewhere on your
 `PATH`. Releases also include a checksum file for verifying downloads.
 
+For example, after extracting the archive on macOS or Linux, install the binary
+in your user directory:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+install -m 755 jwt-inspect "$HOME/.local/bin/jwt-inspect"
+export PATH="$HOME/.local/bin:$PATH"
+jwt-inspect -help
+```
+
+The `export` applies to the current shell. To make it permanent, add that line
+to your shell's startup file, such as `~/.zshrc` or `~/.bashrc`. On Windows,
+place `jwt-inspect.exe` in a directory on your user `Path`, or add its directory
+to `Path` in Windows environment variable settings, then open a new terminal.
+
 For example, on Linux or macOS, calculate the archive's SHA-256 checksum with
 `sha256sum ARCHIVE` or `shasum -a 256 ARCHIVE` and compare it with the matching
 entry in the checksum file. In PowerShell, use
@@ -37,7 +52,7 @@ jwt-inspect Bearer TOKEN
 ```
 
 The CLI also accepts the `Bearer` prefix and token together as one argument.
-Use `jwt-inspect --help` for the supported forms and `jwt-inspect --version`
+Use `jwt-inspect -help` (also `--help` or `-h`) for the supported forms and `jwt-inspect --version`
 to display the version (`dev` for local builds).
 
 To read from standard input instead of putting the token directly in a command:

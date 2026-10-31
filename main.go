@@ -14,7 +14,7 @@ import (
 var version = "dev"
 
 const usage = `Usage: jwt-inspect [TOKEN | "Bearer TOKEN" | Bearer TOKEN]
-       jwt-inspect --help | -h
+       jwt-inspect --help | -help | -h
        jwt-inspect --version | -v
 
 Without arguments, read a token (optionally prefixed by Bearer) from stdin.
@@ -54,7 +54,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, interactive b
 		token = strings.TrimPrefix(token, "Bearer ")
 	case 1:
 		switch args[0] {
-		case "--help", "-h":
+		case "--help", "-help", "-h":
 			fmt.Fprint(stdout, usage)
 			return 0
 		case "--version", "-v":

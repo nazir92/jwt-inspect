@@ -49,6 +49,7 @@ func TestCLI(t *testing.T) {
 		{name: "empty signature", args: []string{header + "." + payload + "."}, wantStdout: wantOutput},
 		{name: "signature not checked", args: []string{header + "." + payload + ".not_base64!"}, wantStdout: wantOutput},
 		{name: "help", args: []string{"--help"}, wantStdout: usage},
+		{name: "single-dash help", args: []string{"-help"}, wantStdout: usage},
 		{name: "short help", args: []string{"-h"}, wantStdout: usage},
 		{name: "version", args: []string{"--version"}, wantStdout: version + "\n"},
 		{name: "short version", args: []string{"-v"}, wantStdout: version + "\n"},
