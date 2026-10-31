@@ -64,8 +64,14 @@ development and pull request workflow.
 
 After changes are merged to `main` and checks pass, release automation uses the
 squash commit's Conventional Commit type to determine whether to publish a new
-version. Features, fixes, and breaking changes trigger releases; documentation
-or CI changes alone do not.
+version. Features, fixes, performance improvements, and breaking changes
+trigger releases; documentation or CI changes alone do not. The first feature
+release is `v0.1.0`.
+
+If publication fails after a version has been tagged, later releases stop until
+the incomplete release is retried. A maintainer can run the Release workflow
+from the Actions tab on `main` and supply the failed tag as `retry_tag`. The
+workflow reruns checks on the tagged commit before trying again.
 
 ## License
 
